@@ -42,7 +42,7 @@ def load_csv_to_postgres(engine, csv_path: Path, table_name: str) -> None:
     df.to_sql(
         name=table_name,
         con=engine,
-        if_exists="replace",
+        if_exists="append",
         index=False,
         chunksize=10_000,
         method="multi",
