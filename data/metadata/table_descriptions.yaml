@@ -1,0 +1,657 @@
+# data/metadata/table_descriptions.yaml
+#
+# Purpose:
+#   Semantic table metadata for an Agentic BI Copilot.
+#   This file helps the agent understand table meaning, grain, joins,
+#   common business questions, and caveats before generating SQL.
+#
+# Source datasets:
+#   - Olist Brazilian E-Commerce Public Dataset
+#   - Olist Marketing Funnel by Olist
+#
+# Notes:
+#   - Column names follow the original Olist CSV naming where possible.
+#   - Some descriptions are business-facing interpretations, not direct copies
+#     of the dataset documentation.
+#   - The agent should use this metadata together with database schema inspection.
+
+version: 1
+
+dataset:
+  name: olist_marketplace_analytics
+  business_name: Olist Marketplace Analytics Warehouse
+  description: >
+    Relational analytics dataset representing marketplace orders, customers,
+    sellers, products, payments, delivery performance, reviews, and seller
+    acquisition funnel activity. Suitable for business intelligence analysis
+    across sales, operations, customer satisfaction, seller performance, and
+    marketing funnel conversion.
+  default_currency: BRL
+  default_timezone: America/Sao_Paulo
+  date_range:
+    ecommerce_orders: "2016-2018"
+    marketing_funnel: "2017-2018"
+  recommended_use_cases:
+    - Revenue and order trend analysis
+    - Customer location and repeat-purchase analysis
+    - Seller performance analysis
+    - Product category performance analysis
+    - Delivery delay and freight analysis
+    - Customer satisfaction and review analysis
+    - Marketing lead conversion analysis
+    - Sales development representative and sales representative performance analysis
+  global_caveats:
+    - Data is anonymized.
+    - Customer, seller, and lead identifiers do not reveal real-world identities.
+    - The e-commerce and marketing datasets connect primarily through seller_id after a lead becomes a closed deal.
+    - Joining multiple one-to-many tables can duplicate rows and inflate metrics.
+    - Always respect table grain before aggregating revenue, payment value, review score, or order counts.
+    - Use delivered orders when analyzing delivery time or customer delivery experience unless the user explicitly asks about all order statuses.
+
+tables:
+
+  customers:
+    source_file: olist_customers_dataset.csv
+    business_name: Customers
+    description: >
+      Contains customer-level identifiers and customer location information.
+      This table is used to analyze customer geography, order distribution,
+      and repeat-customer behavior.
+    grain: One row per customer_id assigned to an order.
+    primary_key: customer_id
+    foreign_keys: {}
+    important_columns:
+      customer_id: >
+        Order-level customer identifier. Each order is associated with one
+        customer_id. The same real customer may have different customer_id
+        values across multiple orders.
+      customer_unique_id: >
+        Anonymized identifier intended to link repeat purchases by the same
+        customer across multiple orders.
+      customer_zip_code_prefix: Approximate customer ZIP code prefix.
+      customer_city: Customer city.
+      customer_state: Customer state abbreviation.
+    joins:
+      - table: orders
+        on: customers.customer_id = orders.customer_id
+        relationship: one_to_many
+        purpose: Join customers to their orders.
+      - table: geolocation
+        on: customers.customer_zip_code_prefix = geolocation.geolocation_zip_code_prefix
+        relationship: many_to_many_possible
+        purpose: Approximate customer geographic coordinates by ZIP prefix.
+    common_questions:
+      - Which states or cities generate the most orders?
+      - Which regions have the highest revenue?
+      - What is the repeat purchase rate?
+      - Which customer locations experience the longest delivery times?
+    caveats:
+      - Use customer_unique_id, not customer_id, for repeat-customer analysis.
+      - customer_zip_code_prefix is not a full ZIP code.
+      - Joining to geolocation can create duplicates because geolocation may have multiple rows per ZIP prefix.
+      - Customer location usually represents delivery location, not necessarily permanent residence.
+
+  orders:
+    source_file: olist_orders_dataset.csv
+    business_name: Orders
+    description: >
+      Core order lifecycle table. Contains one record per order, including
+      customer identifier, order status, purchase time, approval time,
+      carrier handoff time, customer delivery time, and estimated delivery date.
+    grain: One row per order.
+    primary_key: order_id
+    foreign_keys:
+      customer_id: customers.customer_id
+    important_columns:
+      order_id: Unique order identifier.
+      customer_id: Customer associated with the order.
+      order_status: >
+        Lifecycle status of the order, such as delivered, shipped, canceled,
+        invoiced, processing, unavailable, approved, or created.
+      order_purchase_timestamp: Timestamp when the order was placed.
+      order_approved_at: Timestamp when payment/order approval occurred.
+      order_delivered_carrier_date: Timestamp when the order was handed to the carrier.
+      order_delivered_customer_date: Timestamp when the order was delivered to the customer.
+      order_estimated_delivery_date: Estimated delivery deadline.
+    joins:
+      - table: customers
+        on: orders.customer_id = customers.customer_id
+        relationship: many_to_one
+        purpose: Add customer geography and repeat-customer identifiers.
+      - table: order_items
+        on: orders.order_id = order_items.order_id
+        relationship: one_to_many
+        purpose: Add product, seller, item price, and freight information.
+      - table: order_payments
+        on: orders.order_id = order_payments.order_id
+        relationship: one_to_many
+        purpose: Add payment method, installments, and payment value.
+      - table: order_reviews
+        on: orders.order_id = order_reviews.order_id
+        relationship: one_to_zero_or_many
+        purpose: Add customer satisfaction survey information.
+    common_questions:
+      - What is monthly order volume?
+      - How has revenue changed over time?
+      - What percentage of orders are canceled?
+      - How long does delivery take?
+      - Which states have the highest late-delivery rate?
+    caveats:
+      - For sales trend analysis, use order_purchase_timestamp as the default date.
+      - For delivery-time analysis, usually filter to order_status = 'delivered'.
+      - order_delivered_customer_date may be null for non-delivered orders.
+      - Joining orders to order_items duplicates order rows when orders contain multiple items.
+      - Joining orders to order_payments may duplicate order rows when orders have multiple payment records.
+      - Do not count orders after joining to item-level or payment-level tables unless using COUNT(DISTINCT orders.order_id).
+
+  order_items:
+    source_file: olist_order_items_dataset.csv
+    business_name: Order Items
+    description: >
+      Contains item-level details for products purchased within each order.
+      Includes product, seller, item sequence, item price, freight value,
+      and seller shipping deadline.
+    grain: One row per item within an order.
+    primary_key:
+      - order_id
+      - order_item_id
+    foreign_keys:
+      order_id: orders.order_id
+      product_id: products.product_id
+      seller_id: sellers.seller_id
+    important_columns:
+      order_id: Order containing the item.
+      order_item_id: Sequence number of the item within the order.
+      product_id: Product purchased.
+      seller_id: Seller responsible for fulfilling the item.
+      shipping_limit_date: Deadline for the seller to hand over the item for shipping.
+      price: Product item price, excluding freight.
+      freight_value: Freight/shipping value assigned to the item.
+    joins:
+      - table: orders
+        on: order_items.order_id = orders.order_id
+        relationship: many_to_one
+        purpose: Add order lifecycle, customer, and purchase date information.
+      - table: products
+        on: order_items.product_id = products.product_id
+        relationship: many_to_one
+        purpose: Add product attributes and category.
+      - table: sellers
+        on: order_items.seller_id = sellers.seller_id
+        relationship: many_to_one
+        purpose: Add seller location and seller identity.
+    common_questions:
+      - Which sellers generate the most revenue?
+      - Which product categories generate the highest revenue?
+      - What is average order value?
+      - Which products have high freight costs?
+      - Which sellers miss shipping deadlines?
+    caveats:
+      - price excludes freight_value.
+      - Item-level revenue is usually SUM(price).
+      - Total customer charge may require combining price and freight_value or using payment_value, depending on metric definition.
+      - Multiple rows can exist for the same order_id.
+      - If joining to order_payments, aggregate carefully to avoid item-payment many-to-many duplication.
+      - Use COUNT(DISTINCT order_id) for order counts from this table.
+
+  order_payments:
+    source_file: olist_order_payments_dataset.csv
+    business_name: Order Payments
+    description: >
+      Contains payment-level information for orders, including payment method,
+      number of installments, payment sequence, and payment amount.
+    grain: One row per payment transaction or payment component within an order.
+    primary_key:
+      - order_id
+      - payment_sequential
+    foreign_keys:
+      order_id: orders.order_id
+    important_columns:
+      order_id: Order associated with the payment.
+      payment_sequential: Sequence number for payment records within an order.
+      payment_type: Payment method, such as credit_card, boleto, voucher, debit_card, or not_defined.
+      payment_installments: Number of installments used for the payment.
+      payment_value: Payment amount.
+    joins:
+      - table: orders
+        on: order_payments.order_id = orders.order_id
+        relationship: many_to_one
+        purpose: Add order lifecycle and purchase date.
+    common_questions:
+      - Which payment methods are most common?
+      - What is the average payment value by payment type?
+      - Do installment counts correlate with higher order value?
+      - What is total payment value over time?
+    caveats:
+      - An order may have multiple payment records.
+      - SUM(payment_value) can represent total paid amount, but be careful when joining to order_items.
+      - Do not directly join order_payments to order_items and sum both payment_value and price without pre-aggregating by order_id.
+      - Payment value may include product price, freight, and other payment components depending on the transaction.
+
+  order_reviews:
+    source_file: olist_order_reviews_dataset.csv
+    business_name: Order Reviews
+    description: >
+      Contains customer satisfaction survey responses after purchase or after
+      the estimated delivery deadline. Includes review score, optional title,
+      optional message, creation date, and answer timestamp.
+    grain: One row per review_id; usually associated with one order.
+    primary_key: review_id
+    foreign_keys:
+      order_id: orders.order_id
+    important_columns:
+      review_id: Unique review identifier.
+      order_id: Order associated with the review.
+      review_score: Customer satisfaction score, typically from 1 to 5.
+      review_comment_title: Optional short review title.
+      review_comment_message: Optional free-text review message.
+      review_creation_date: Date when the review survey was created.
+      review_answer_timestamp: Timestamp when the review was answered.
+    joins:
+      - table: orders
+        on: order_reviews.order_id = orders.order_id
+        relationship: many_to_one
+        purpose: Add order delivery and customer information.
+      - table: order_items
+        on: order_reviews.order_id = order_items.order_id
+        relationship: one_to_many_via_order
+        purpose: Analyze review scores by product, category, or seller.
+    common_questions:
+      - What is the average review score by product category?
+      - Are delayed deliveries associated with lower review scores?
+      - Which sellers have high revenue but low customer satisfaction?
+      - Which review comments indicate product quality or logistics issues?
+    caveats:
+      - Not every review has comment text.
+      - Some orders may have more than one review record.
+      - Review score is order-level, not item-level; joining to item-level data can duplicate scores.
+      - Use AVG(review_score) carefully after joining to order_items; consider aggregating at order level first.
+      - Text fields are anonymized and may contain replaced names.
+
+  products:
+    source_file: olist_products_dataset.csv
+    business_name: Products
+    description: >
+      Contains product-level attributes, including product category, name and
+      description lengths, number of photos, and physical dimensions.
+    grain: One row per product_id.
+    primary_key: product_id
+    foreign_keys:
+      product_category_name: product_category_translation.product_category_name
+    important_columns:
+      product_id: Unique product identifier.
+      product_category_name: Product category name in Portuguese.
+      product_name_lenght: Length of product name. Original dataset uses the misspelled column name.
+      product_description_lenght: Length of product description. Original dataset uses the misspelled column name.
+      product_photos_qty: Number of product photos.
+      product_weight_g: Product weight in grams.
+      product_length_cm: Product length in centimeters.
+      product_height_cm: Product height in centimeters.
+      product_width_cm: Product width in centimeters.
+    joins:
+      - table: order_items
+        on: products.product_id = order_items.product_id
+        relationship: one_to_many
+        purpose: Analyze sales, freight, and reviews by product.
+      - table: product_category_translation
+        on: products.product_category_name = product_category_translation.product_category_name
+        relationship: many_to_one
+        purpose: Translate product category names to English.
+    common_questions:
+      - Which product categories generate the most revenue?
+      - Which categories have the lowest review scores?
+      - Do heavier or larger products have higher freight costs?
+      - Do products with more photos receive better reviews?
+    caveats:
+      - Category names are originally in Portuguese.
+      - Use product_category_translation for English reporting.
+      - Some product attributes may be missing.
+      - The columns product_name_lenght and product_description_lenght are misspelled in the source data; do not silently correct them unless the database schema has been renamed.
+      - Product attributes are product-level and should not be treated as order-level fields.
+
+  sellers:
+    source_file: olist_sellers_dataset.csv
+    business_name: Sellers
+    description: >
+      Contains seller identifiers and seller location information. Sellers
+      fulfill products sold through the Olist marketplace.
+    grain: One row per seller_id.
+    primary_key: seller_id
+    foreign_keys: {}
+    important_columns:
+      seller_id: Unique seller identifier.
+      seller_zip_code_prefix: Approximate seller ZIP code prefix.
+      seller_city: Seller city.
+      seller_state: Seller state abbreviation.
+    joins:
+      - table: order_items
+        on: sellers.seller_id = order_items.seller_id
+        relationship: one_to_many
+        purpose: Analyze seller sales, freight, delivery, and review outcomes.
+      - table: geolocation
+        on: sellers.seller_zip_code_prefix = geolocation.geolocation_zip_code_prefix
+        relationship: many_to_many_possible
+        purpose: Approximate seller geographic coordinates by ZIP prefix.
+      - table: closed_deals
+        on: sellers.seller_id = closed_deals.seller_id
+        relationship: one_to_zero_or_many
+        purpose: Connect seller performance to marketing and sales funnel acquisition data.
+    common_questions:
+      - Which sellers generate the most revenue?
+      - Which seller states have the highest delivery delays?
+      - Which sellers have poor review scores despite high sales?
+      - Do sellers acquired through specific lead origins perform better?
+    caveats:
+      - Seller ZIP code is a prefix, not a full ZIP code.
+      - Joining to geolocation can duplicate rows.
+      - A seller can sell many items across many orders.
+      - A seller may or may not appear in the marketing funnel closed_deals table.
+      - Use seller_id to connect e-commerce performance to closed-deal information.
+
+  geolocation:
+    source_file: olist_geolocation_dataset.csv
+    business_name: Geolocation
+    description: >
+      Contains Brazilian ZIP code prefixes with approximate latitude,
+      longitude, city, and state information. Useful for geographic analysis,
+      mapping, and approximate distance calculations between customers and sellers.
+    grain: One row per geolocation record; multiple rows may exist for the same ZIP code prefix.
+    primary_key: null
+    foreign_keys: {}
+    important_columns:
+      geolocation_zip_code_prefix: ZIP code prefix.
+      geolocation_lat: Approximate latitude.
+      geolocation_lng: Approximate longitude.
+      geolocation_city: City associated with the ZIP code prefix.
+      geolocation_state: State abbreviation associated with the ZIP code prefix.
+    joins:
+      - table: customers
+        on: geolocation.geolocation_zip_code_prefix = customers.customer_zip_code_prefix
+        relationship: one_to_many_or_many_to_many
+        purpose: Add approximate coordinates for customer locations.
+      - table: sellers
+        on: geolocation.geolocation_zip_code_prefix = sellers.seller_zip_code_prefix
+        relationship: one_to_many_or_many_to_many
+        purpose: Add approximate coordinates for seller locations.
+    common_questions:
+      - What is the geographic distribution of customers?
+      - What is the geographic distribution of sellers?
+      - Which customer-seller routes have long delivery times?
+      - Is freight cost related to approximate distance?
+    caveats:
+      - Multiple records may exist per ZIP prefix; aggregate or deduplicate before joining.
+      - Coordinates are approximate.
+      - City names may have spelling or normalization differences.
+      - Distance calculations should be treated as approximate unless geolocation is cleaned and deduplicated.
+      - Avoid joining raw geolocation directly into order-level queries without deduplication.
+
+  product_category_translation:
+    source_file: product_category_name_translation.csv
+    business_name: Product Category Translation
+    description: >
+      Lookup table translating product category names from Portuguese to English.
+      Useful for English-language dashboards, reports, and agent responses.
+    grain: One row per Portuguese product category name.
+    primary_key: product_category_name
+    foreign_keys: {}
+    important_columns:
+      product_category_name: Product category name in Portuguese.
+      product_category_name_english: Product category name translated to English.
+    joins:
+      - table: products
+        on: product_category_translation.product_category_name = products.product_category_name
+        relationship: one_to_many
+        purpose: Add English category labels to products.
+    common_questions:
+      - What are the top product categories in English?
+      - Which English product categories have the highest revenue?
+      - Which English product categories have the lowest review scores?
+    caveats:
+      - Some products may have missing category names.
+      - Some category translations may be missing if new or malformed categories exist.
+      - Use product_category_name_english for user-facing answers when available.
+
+  marketing_qualified_leads:
+    source_file: olist_marketing_qualified_leads_dataset.csv
+    business_name: Marketing Qualified Leads
+    description: >
+      Contains marketing qualified leads from sellers that requested contact
+      with Olist. This table represents the top of the seller acquisition
+      funnel before a deal is won.
+    grain: One row per marketing qualified lead.
+    primary_key: mql_id
+    foreign_keys: {}
+    important_columns:
+      mql_id: Unique marketing qualified lead identifier.
+      first_contact_date: Date when the lead first contacted or was first recorded by Olist.
+      landing_page_id: Identifier of the landing page associated with the lead.
+      origin: Acquisition origin or marketing source for the lead.
+    joins:
+      - table: closed_deals
+        on: marketing_qualified_leads.mql_id = closed_deals.mql_id
+        relationship: one_to_zero_or_one
+        purpose: Determine whether a marketing qualified lead became a closed deal.
+    common_questions:
+      - How many MQLs were generated by month?
+      - Which origins produce the most leads?
+      - Which origins have the highest conversion rate to closed deals?
+      - How long does it take for leads to become won deals?
+    caveats:
+      - Not every MQL becomes a closed deal.
+      - origin may be missing or inconsistent.
+      - This table describes seller acquisition leads, not end customers.
+      - landing_page_id identifies acquisition landing pages but does not by itself explain campaign content.
+      - Conversion analysis requires joining to closed_deals.
+
+  closed_deals:
+    source_file: olist_closed_deals_dataset.csv
+    business_name: Closed Deals
+    description: >
+      Contains seller leads that became won deals. Includes the associated
+      seller_id, sales development representative, sales representative,
+      won date, lead characteristics, business segment, business type, and
+      declared seller information.
+    grain: One row per closed/won seller deal.
+    primary_key: mql_id
+    foreign_keys:
+      mql_id: marketing_qualified_leads.mql_id
+      seller_id: sellers.seller_id
+    important_columns:
+      mql_id: Marketing qualified lead identifier associated with the won deal.
+      seller_id: Seller identifier created or linked after the deal was won.
+      sdr_id: Sales development representative identifier.
+      sr_id: Sales representative identifier.
+      won_date: Date when the deal was won.
+      business_segment: Business segment of the seller lead.
+      lead_type: Type/category of lead.
+      lead_behaviour_profile: Behavioral profile assigned to the lead.
+      has_company: Whether the lead declared having a company.
+      has_gtin: Whether the lead declared having GTIN/product barcode information.
+      average_stock: Declared average stock level.
+      business_type: Business type of the seller.
+      declared_product_catalog_size: Declared number of products in the seller catalog.
+      declared_monthly_revenue: Declared monthly revenue by the lead/seller.
+    joins:
+      - table: marketing_qualified_leads
+        on: closed_deals.mql_id = marketing_qualified_leads.mql_id
+        relationship: one_to_one
+        purpose: Add acquisition origin and first contact date.
+      - table: sellers
+        on: closed_deals.seller_id = sellers.seller_id
+        relationship: many_to_one
+        purpose: Connect closed seller deals to marketplace seller performance.
+      - table: order_items
+        on: closed_deals.seller_id = order_items.seller_id
+        relationship: one_to_many_via_seller
+        purpose: Analyze post-acquisition seller sales performance.
+    common_questions:
+      - Which lead origins convert to won deals?
+      - Which SDRs or SRs have the highest number of closed deals?
+      - Which business segments produce the highest-value sellers?
+      - Do sellers with higher declared monthly revenue perform better after onboarding?
+      - How long does it take from first contact to won deal?
+      - Which acquisition channels lead to sellers with high marketplace revenue?
+    caveats:
+      - This table only includes won deals, not all leads.
+      - It should be joined to marketing_qualified_leads for funnel conversion analysis.
+      - It should be joined to sellers and order_items for post-acquisition seller performance.
+      - declared_monthly_revenue is self-declared and may not match actual marketplace revenue.
+      - average_stock and declared_product_catalog_size may contain missing or unreliable values.
+      - sdr_id and sr_id are anonymized representative identifiers.
+      - A closed deal does not guarantee the seller later generated orders in the e-commerce dataset.
+
+relationships:
+
+  ecommerce_core:
+    - from: orders.customer_id
+      to: customers.customer_id
+      type: many_to_one
+      note: Each order belongs to one customer_id.
+    - from: order_items.order_id
+      to: orders.order_id
+      type: many_to_one
+      note: Each order can contain multiple item rows.
+    - from: order_items.product_id
+      to: products.product_id
+      type: many_to_one
+      note: Each item references one product.
+    - from: order_items.seller_id
+      to: sellers.seller_id
+      type: many_to_one
+      note: Each item is fulfilled by one seller.
+    - from: order_payments.order_id
+      to: orders.order_id
+      type: many_to_one
+      note: Each order can have one or more payment records.
+    - from: order_reviews.order_id
+      to: orders.order_id
+      type: many_to_one
+      note: Reviews are associated with orders, but review cardinality may vary.
+    - from: products.product_category_name
+      to: product_category_translation.product_category_name
+      type: many_to_one
+      note: Translation lookup for product category labels.
+    - from: customers.customer_zip_code_prefix
+      to: geolocation.geolocation_zip_code_prefix
+      type: many_to_many_possible
+      note: Deduplicate geolocation before joining.
+    - from: sellers.seller_zip_code_prefix
+      to: geolocation.geolocation_zip_code_prefix
+      type: many_to_many_possible
+      note: Deduplicate geolocation before joining.
+
+  marketing_funnel:
+    - from: closed_deals.mql_id
+      to: marketing_qualified_leads.mql_id
+      type: one_to_one
+      note: Closed deals are won leads from the MQL table.
+    - from: closed_deals.seller_id
+      to: sellers.seller_id
+      type: many_to_one
+      note: Connects seller acquisition funnel data to marketplace seller data.
+
+agent_guidance:
+
+  default_date_columns:
+    revenue_analysis: orders.order_purchase_timestamp
+    order_volume_analysis: orders.order_purchase_timestamp
+    delivery_analysis: orders.order_delivered_customer_date
+    review_analysis: order_reviews.review_creation_date
+    lead_generation_analysis: marketing_qualified_leads.first_contact_date
+    deal_conversion_analysis: closed_deals.won_date
+
+  recommended_metric_tables:
+    revenue:
+      base_table: order_items
+      required_joins:
+        - orders
+      default_expression: SUM(order_items.price)
+      default_filters:
+        - orders.order_status = 'delivered'
+      warning: >
+        Revenue based on item price excludes freight. Use payment_value only
+        when the user asks about paid amount or payment volume.
+    freight:
+      base_table: order_items
+      default_expression: SUM(order_items.freight_value)
+      warning: >
+        Freight is item-level and can be summed by order, seller, product,
+        or category.
+    order_count:
+      base_table: orders
+      default_expression: COUNT(DISTINCT orders.order_id)
+      warning: >
+        Use COUNT(DISTINCT orders.order_id) after joining to order_items,
+        order_payments, or order_reviews.
+    average_order_value:
+      base_table: order_items
+      required_joins:
+        - orders
+      suggested_logic: >
+        First aggregate item price to order level, then average order revenue.
+      warning: >
+        Do not calculate AVG(order_items.price) as average order value.
+    review_score:
+      base_table: order_reviews
+      default_expression: AVG(order_reviews.review_score)
+      warning: >
+        Reviews are order-level. Avoid duplicating review scores when joining
+        to item-level data.
+    delivery_delay:
+      base_table: orders
+      suggested_logic: >
+        Compare order_delivered_customer_date with order_estimated_delivery_date
+        for delivered orders.
+      default_filters:
+        - orders.order_status = 'delivered'
+        - orders.order_delivered_customer_date IS NOT NULL
+      warning: >
+        Do not compute delivery delay for non-delivered orders.
+    lead_conversion_rate:
+      base_table: marketing_qualified_leads
+      required_joins:
+        - closed_deals
+      suggested_logic: >
+        COUNT(DISTINCT closed_deals.mql_id) divided by
+        COUNT(DISTINCT marketing_qualified_leads.mql_id).
+      warning: >
+        Use a LEFT JOIN from marketing_qualified_leads to closed_deals to avoid
+        excluding unconverted leads.
+
+  unsafe_join_patterns:
+    - pattern: orders -> order_items -> order_payments without pre-aggregation
+      risk: >
+        Can create many-to-many duplication between item rows and payment rows.
+      recommendation: >
+        Aggregate order_items by order_id and order_payments by order_id before joining.
+    - pattern: orders -> order_items -> order_reviews without order-level aggregation
+      risk: >
+        Can duplicate order-level review scores across item rows.
+      recommendation: >
+        Aggregate review metrics at order_id before analyzing by item, seller, or category.
+    - pattern: raw geolocation joined directly to customers or sellers
+      risk: >
+        ZIP prefix duplicates can multiply rows.
+      recommendation: >
+        Deduplicate geolocation by ZIP prefix, for example using average latitude
+        and longitude per prefix.
+    - pattern: closed_deals inner joined to marketing_qualified_leads for conversion denominator
+      risk: >
+        Excludes unconverted leads and inflates conversion rate.
+      recommendation: >
+        Use marketing_qualified_leads as the base table and LEFT JOIN closed_deals.
+
+  sql_generation_rules:
+    - Generate read-only SELECT queries only.
+    - Use only tables and columns present in the database schema.
+    - Prefer explicit JOIN syntax.
+    - Use table aliases that are easy to understand.
+    - For order counts after joins, use COUNT(DISTINCT orders.order_id).
+    - For customer repeat analysis, use customer_unique_id.
+    - For seller performance, use sellers.seller_id or order_items.seller_id.
+    - For product category reporting in English, join product_category_translation.
+    - For delivery-time analysis, filter to delivered orders unless otherwise requested.
+    - For funnel conversion analysis, use marketing_qualified_leads as the base table.
+    - Avoid joining item-level and payment-level tables without pre-aggregation.
+    - Include date filters when the user asks for a specific time period.
+    - Include assumptions in the final answer when the business metric is ambiguous.

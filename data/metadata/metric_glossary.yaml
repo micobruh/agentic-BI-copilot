@@ -1,0 +1,233 @@
+# data/metadata/metric_glossary.yaml
+
+version: 1
+
+metrics:
+
+  revenue:
+    business_name: Revenue
+    description: >
+      Total product sales value from delivered marketplace orders.
+    formula_sql: "SUM(order_items.price)"
+    required_tables:
+      - orders
+      - order_items
+    default_filters:
+      - "orders.order_status = 'delivered'"
+    default_date_column: orders.order_purchase_timestamp
+    grain: Can be aggregated by order, seller, product, category, customer region, or time period.
+    caveats:
+      - Excludes freight unless the user explicitly asks to include shipping.
+      - Do not calculate revenue from payment_value unless the user asks for paid amount.
+      - When joining to order_payments, pre-aggregate to avoid duplication.
+
+  gross_merchandise_value:
+    business_name: Gross Merchandise Value
+    abbreviation: GMV
+    description: >
+      Total product value plus freight value for delivered orders.
+    formula_sql: "SUM(order_items.price + order_items.freight_value)"
+    required_tables:
+      - orders
+      - order_items
+    default_filters:
+      - "orders.order_status = 'delivered'"
+    default_date_column: orders.order_purchase_timestamp
+    caveats:
+      - Includes freight.
+      - Does not account for refunds, cancellations, discounts, or platform commission.
+
+  order_count:
+    business_name: Order Count
+    description: >
+      Number of distinct orders.
+    formula_sql: "COUNT(DISTINCT orders.order_id)"
+    required_tables:
+      - orders
+    default_date_column: orders.order_purchase_timestamp
+    caveats:
+      - Always use COUNT(DISTINCT orders.order_id) after joining to item, payment, or review tables.
+
+  average_order_value:
+    business_name: Average Order Value
+    abbreviation: AOV
+    description: >
+      Average product revenue per delivered order.
+    formula_sql: "SUM(order_revenue) / COUNT(DISTINCT order_id)"
+    required_tables:
+      - orders
+      - order_items
+    default_filters:
+      - "orders.order_status = 'delivered'"
+    default_date_column: orders.order_purchase_timestamp
+    recommended_logic: >
+      First aggregate order_items.price to order level, then average across orders.
+    caveats:
+      - Do not use AVG(order_items.price), because that gives average item price, not average order value.
+      - Excludes freight unless explicitly requested.
+
+  late_delivery_rate:
+    business_name: Late Delivery Rate
+    description: >
+      Percentage of delivered orders where the actual customer delivery date was after the estimated delivery date.
+    formula_sql: >
+      SUM(CASE WHEN orders.order_delivered_customer_date > orders.order_estimated_delivery_date THEN 1 ELSE 0 END)
+      / COUNT(DISTINCT orders.order_id)
+    required_tables:
+      - orders
+    default_filters:
+      - "orders.order_status = 'delivered'"
+      - "orders.order_delivered_customer_date IS NOT NULL"
+    default_date_column: orders.order_purchase_timestamp
+    caveats:
+      - Should only be calculated for delivered orders.
+      - Use customer delivery date, not carrier handoff date.
+
+  average_delivery_days:
+    business_name: Average Delivery Days
+    description: >
+      Average number of days between order purchase timestamp and customer delivery timestamp.
+    formula_sql: >
+      AVG(DATE_PART('day', orders.order_delivered_customer_date - orders.order_purchase_timestamp))
+    required_tables:
+      - orders
+    default_filters:
+      - "orders.order_status = 'delivered'"
+      - "orders.order_delivered_customer_date IS NOT NULL"
+    default_date_column: orders.order_purchase_timestamp
+    caveats:
+      - Should not include canceled, unavailable, or undelivered orders.
+
+  average_review_score:
+    business_name: Average Review Score
+    description: >
+      Average customer review score for orders.
+    formula_sql: "AVG(order_reviews.review_score)"
+    required_tables:
+      - order_reviews
+    default_date_column: order_reviews.review_creation_date
+    caveats:
+      - Reviews are order-level, not item-level.
+      - When analyzing by seller or category, avoid duplicating review scores across multiple items.
+      - Consider aggregating reviews at order level before joining to item-level data.
+
+  low_review_rate:
+    business_name: Low Review Rate
+    description: >
+      Percentage of reviewed orders with review score less than or equal to 2.
+    formula_sql: >
+      SUM(CASE WHEN order_reviews.review_score <= 2 THEN 1 ELSE 0 END)
+      / COUNT(DISTINCT order_reviews.review_id)
+    required_tables:
+      - order_reviews
+    default_date_column: order_reviews.review_creation_date
+    caveats:
+      - Measures dissatisfaction among reviewed orders, not all orders.
+
+  freight_ratio:
+    business_name: Freight Ratio
+    description: >
+      Freight cost as a percentage of product price.
+    formula_sql: "SUM(order_items.freight_value) / NULLIF(SUM(order_items.price), 0)"
+    required_tables:
+      - order_items
+    caveats:
+      - Useful for logistics and profitability analysis.
+      - High freight ratio may indicate heavy, bulky, remote, or low-price products.
+
+  seller_revenue:
+    business_name: Seller Revenue
+    description: >
+      Product revenue generated by each seller from delivered orders.
+    formula_sql: "SUM(order_items.price)"
+    required_tables:
+      - orders
+      - order_items
+      - sellers
+    default_filters:
+      - "orders.order_status = 'delivered'"
+    default_date_column: orders.order_purchase_timestamp
+    caveats:
+      - Excludes freight.
+      - Does not subtract seller commission or refunds.
+
+  seller_order_count:
+    business_name: Seller Order Count
+    description: >
+      Number of distinct orders fulfilled by a seller.
+    formula_sql: "COUNT(DISTINCT order_items.order_id)"
+    required_tables:
+      - order_items
+      - orders
+      - sellers
+    default_filters:
+      - "orders.order_status = 'delivered'"
+    default_date_column: orders.order_purchase_timestamp
+    caveats:
+      - A single order may contain items from multiple sellers.
+
+  lead_count:
+    business_name: Lead Count
+    description: >
+      Number of marketing qualified seller leads.
+    formula_sql: "COUNT(DISTINCT marketing_qualified_leads.mql_id)"
+    required_tables:
+      - marketing_qualified_leads
+    default_date_column: marketing_qualified_leads.first_contact_date
+    caveats:
+      - This counts seller acquisition leads, not marketplace customers.
+
+  closed_deal_count:
+    business_name: Closed Deal Count
+    description: >
+      Number of marketing qualified leads that became won seller deals.
+    formula_sql: "COUNT(DISTINCT closed_deals.mql_id)"
+    required_tables:
+      - closed_deals
+    default_date_column: closed_deals.won_date
+    caveats:
+      - This table only includes won deals.
+
+  lead_conversion_rate:
+    business_name: Lead Conversion Rate
+    description: >
+      Percentage of marketing qualified leads that became closed deals.
+    formula_sql: >
+      COUNT(DISTINCT closed_deals.mql_id)
+      / COUNT(DISTINCT marketing_qualified_leads.mql_id)
+    required_tables:
+      - marketing_qualified_leads
+      - closed_deals
+    default_date_column: marketing_qualified_leads.first_contact_date
+    recommended_logic: >
+      Use marketing_qualified_leads as the base table and LEFT JOIN closed_deals.
+    caveats:
+      - Do not use closed_deals as the base table, because it excludes unconverted leads.
+      - Conversion can be grouped by lead origin, landing page, first contact month, SDR, or SR.
+
+  time_to_close_days:
+    business_name: Time to Close
+    description: >
+      Number of days between first contact date and won date for converted seller leads.
+    formula_sql: >
+      AVG(DATE_PART('day', closed_deals.won_date - marketing_qualified_leads.first_contact_date))
+    required_tables:
+      - marketing_qualified_leads
+      - closed_deals
+    default_filters:
+      - "closed_deals.won_date IS NOT NULL"
+    default_date_column: marketing_qualified_leads.first_contact_date
+    caveats:
+      - Only defined for leads that became closed deals.
+
+  declared_monthly_revenue:
+    business_name: Declared Monthly Revenue
+    description: >
+      Monthly revenue self-declared by the seller lead during the acquisition process.
+    formula_sql: "AVG(closed_deals.declared_monthly_revenue)"
+    required_tables:
+      - closed_deals
+    default_date_column: closed_deals.won_date
+    caveats:
+      - Self-declared value may not match actual marketplace revenue.
+      - Should not be confused with realized seller revenue from order_items.
