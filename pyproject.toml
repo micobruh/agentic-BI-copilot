@@ -1,0 +1,27 @@
+[project]
+name = "agentic-bi-copilot"
+version = "0.1.0"
+description = "MCP-enabled Agentic BI Copilot with SQL self-verification"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "streamlit",
+    "langgraph",
+    "langchain",
+    "pydantic",
+    "sqlalchemy",
+    "psycopg2-binary",
+    "pandas",
+    "pyyaml",
+    "sqlglot",
+    "plotly",
+    "python-dotenv",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+]
