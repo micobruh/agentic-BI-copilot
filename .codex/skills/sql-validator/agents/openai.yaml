@@ -1,0 +1,4 @@
+interface:
+  display_name: "SQL Validator"
+  short_description: "Extend the BI SQL validator safely."
+  default_prompt: "Use this skill when changing SQL validation, safety policy, or sqlglot-based query checks."

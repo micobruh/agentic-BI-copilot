@@ -1,5 +1,3 @@
--- db/create_readonly_user.sql
---
 -- Requires psql variables:
 --   readonly_user
 --   readonly_password

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prompt Engineering"
+  short_description: "Edit runtime BI agent prompts."
+  default_prompt: "Use this skill when editing files under src/bi_copilot/prompts or changing agent prompt contracts."

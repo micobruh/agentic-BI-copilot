@@ -1,5 +1,3 @@
--- db/schema.sql
-
 DROP TABLE IF EXISTS order_payments CASCADE;
 DROP TABLE IF EXISTS order_reviews CASCADE;
 DROP TABLE IF EXISTS order_items CASCADE;

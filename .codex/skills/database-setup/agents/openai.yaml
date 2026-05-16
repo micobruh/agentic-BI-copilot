@@ -1,0 +1,4 @@
+interface:
+  display_name: "Database Setup"
+  short_description: "Change database schema, views, loading, and read-only setup."
+  default_prompt: "Use this skill when modifying db/schema.sql, db/views.sql, indexes, data loading scripts, or database setup commands."

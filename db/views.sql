@@ -1,5 +1,3 @@
--- db/views.sql
-
 CREATE OR REPLACE VIEW v_order_revenue AS
 SELECT
     o.order_id,

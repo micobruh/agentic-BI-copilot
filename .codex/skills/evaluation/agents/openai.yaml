@@ -1,0 +1,4 @@
+interface:
+  display_name: "Evaluation"
+  short_description: "Add BI copilot regression and evaluation cases."
+  default_prompt: "Use this skill when adding tests, evaluation questions, mocked LLM checks, or regression cases."

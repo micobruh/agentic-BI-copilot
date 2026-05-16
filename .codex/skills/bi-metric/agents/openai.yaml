@@ -1,0 +1,4 @@
+interface:
+  display_name: "BI Metric"
+  short_description: "Add or revise governed BI metrics."
+  default_prompt: "Use this skill when changing metric glossary definitions, metric SQL logic, or BI metric behavior."

@@ -1,22 +1,26 @@
-from typing import Any, Optional
-from pydantic import BaseModel
-
+from typing import Any
+from pydantic import BaseModel, Field
 
 class BIState(BaseModel):
     user_question: str
-    intent: Optional[str] = None
-    relevant_tables: list[str] = []
-    metric_definitions: dict[str, Any] = {}
+    intent: str | None = None
+    plan: dict[str, Any] = Field(default_factory=dict)
+    retrieval_targets: list[dict[str, Any]] = Field(default_factory=list)
+    retrieved_context: list[dict[str, Any]] = Field(default_factory=list)
 
-    generated_sql: Optional[str] = None
-    sql_validation_result: dict[str, Any] = {}
-    query_result: list[dict[str, Any]] = []
+    database_schema: dict[str, list[str]] = Field(default_factory=dict)
+    relevant_tables: list[str] = Field(default_factory=list)
+    metric_definitions: dict[str, Any] = Field(default_factory=dict)
 
-    analysis_summary: Optional[str] = None
-    chart_spec: Optional[dict[str, Any]] = None
+    generated_sql: str | None = None
+    sql_validation_result: dict[str, Any] = Field(default_factory=dict)
+    query_result: list[dict[str, Any]] = Field(default_factory=list)
 
-    verification_result: dict[str, Any] = {}
-    final_answer: Optional[str] = None
+    analysis_summary: str | None = None
+    chart_spec: str | None = None
 
-    errors: list[str] = []
-    audit_trace: list[dict[str, Any]] = []
+    verification_result: dict[str, Any] = Field(default_factory=dict)
+    final_answer: str | None = None
+
+    errors: list[str] = Field(default_factory=list)
+    audit_trace: list[dict[str, Any]] = Field(default_factory=list)

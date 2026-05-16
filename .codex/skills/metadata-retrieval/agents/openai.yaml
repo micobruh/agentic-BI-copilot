@@ -1,0 +1,4 @@
+interface:
+  display_name: "Metadata Retrieval"
+  short_description: "Populate and use governed schema metadata."
+  default_prompt: "Use this skill when implementing metadata retrieval, schema loading, or metric/table metadata flow."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workflow Node"
+  short_description: "Implement LangGraph-style BI workflow nodes."
+  default_prompt: "Use this skill when wiring graph nodes, workflow routing, or BIState transitions."

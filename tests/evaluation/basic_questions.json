@@ -1,0 +1,27 @@
+[
+  {
+    "question": "What was the total revenue in 2018?",
+    "expected_tables": ["orders", "order_items"],
+    "expected_metric": "revenue"
+  },
+  {
+    "question": "Which product categories generated the most revenue?",
+    "expected_tables": ["orders", "order_items", "products", "product_category_translation"],
+    "expected_metric": "revenue"
+  },
+  {
+    "question": "What is the average review score by product category?",
+    "expected_tables": ["order_reviews", "orders", "order_items", "products"],
+    "expected_metric": "average_review_score"
+  },
+  {
+    "question": "Which states had the highest late delivery rate?",
+    "expected_tables": ["orders", "customers"],
+    "expected_metric": "late_delivery_rate"
+  },
+  {
+    "question": "Which lead origins had the highest conversion rate?",
+    "expected_tables": ["marketing_qualified_leads", "closed_deals"],
+    "expected_metric": "lead_conversion_rate"
+  }
+]
