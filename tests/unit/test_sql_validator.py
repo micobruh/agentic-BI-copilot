@@ -1,4 +1,4 @@
-from bi_copilot.tools.sql_query_guard import ValidationPolicy, validate_sql
+from bi_copilot.tools.sql_validator import ValidationPolicy, validate_sql
 
 
 SCHEMA = {

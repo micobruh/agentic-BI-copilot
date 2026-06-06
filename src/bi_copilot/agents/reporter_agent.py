@@ -1,10 +1,11 @@
 from pathlib import Path
+from typing import Any
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
 from bi_copilot.agents.base import BaseAgent
-from bi_copilot.graph.state import BIState
+from bi_copilot.graph.state import AgentState
 
 
 REPORTER_PROMPT_PATH = Path(__file__).parents[1] / "prompts" / "reporter.md"
@@ -23,36 +24,41 @@ class ReporterAgent(BaseAgent):
                 (
                     "human",
                     """
-                    User question:
-                    {question}
+User question:
+{question}
 
-                    Plan:
-                    {plan}
+Plan:
+{plan}
 
-                    Generated SQL:
-                    {generated_sql}
+Generated SQL:
+{generated_sql}
 
-                    Query result:
-                    {query_result}
+Query result:
+{query_result}
 
-                    Verification result:
-                    {verification_result}
-                    """,
+Verification result:
+{verification_result}
+
+Errors:
+{errors}
+""",
                 ),
             ]
         )
+
         return prompt | self.llm | StrOutputParser()
 
-    def build_input(self, state: BIState):
+    def build_input(self, state: AgentState) -> dict[str, Any]:
         return {
-            "question": state.user_question,
-            "plan": state.plan,
-            "generated_sql": state.generated_sql,
-            "query_result": state.query_result,
-            "verification_result": state.verification_result,
+            "question": state["user_question"],
+            "plan": state.get("plan", {}),
+            "generated_sql": state.get("generated_sql"),
+            "query_result": state.get("query_result", []),
+            "verification_result": state.get("verification_result", {}),
+            "errors": state.get("errors", []),
         }
 
-    def parse_output(self, output: str, state: BIState):
+    def parse_output(self, output: str, state: AgentState) -> dict[str, Any]:
         return {
             "analysis_summary": output,
             "final_answer": output,

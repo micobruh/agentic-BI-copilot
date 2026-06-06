@@ -1,26 +1,45 @@
-from typing import Any
-from pydantic import BaseModel, Field
+# src/bi_copilot/graph/state.py
 
-class BIState(BaseModel):
+from typing import Any, Annotated, TypedDict
+from operator import add
+
+
+def merge_dicts(left: dict, right: dict) -> dict:
+    return {**left, **right}
+
+
+class AgentState(TypedDict, total=False):
+    # Input
     user_question: str
-    intent: str | None = None
-    plan: dict[str, Any] = Field(default_factory=dict)
-    retrieval_targets: list[dict[str, Any]] = Field(default_factory=list)
-    retrieved_context: list[dict[str, Any]] = Field(default_factory=list)
 
-    database_schema: dict[str, list[str]] = Field(default_factory=dict)
-    relevant_tables: list[str] = Field(default_factory=list)
-    metric_definitions: dict[str, Any] = Field(default_factory=dict)
+    # Planning
+    intent: str | None
+    plan: dict[str, Any]
+    retrieval_targets: list[dict[str, Any]]
 
-    generated_sql: str | None = None
-    sql_validation_result: dict[str, Any] = Field(default_factory=dict)
-    query_result: list[dict[str, Any]] = Field(default_factory=list)
+    # Retrieval / metadata
+    retrieved_context: Annotated[list[dict[str, Any]], add]
+    database_schema: Annotated[dict[str, list[str]], merge_dicts]
+    relevant_tables: list[str]
+    metric_definitions: Annotated[dict[str, Any], merge_dicts]
 
-    analysis_summary: str | None = None
-    chart_spec: str | None = None
+    # SQL generation / validation / execution
+    generated_sql: str | None
+    sql_validation_result: dict[str, Any]
+    query_result: list[dict[str, Any]]
 
-    verification_result: dict[str, Any] = Field(default_factory=dict)
-    final_answer: str | None = None
+    # Reporting
+    analysis_summary: str | None
+    chart_spec: str | None
+    final_answer: str | None
 
-    errors: list[str] = Field(default_factory=list)
-    audit_trace: list[dict[str, Any]] = Field(default_factory=list)
+    # Verification
+    verification_result: dict[str, Any]
+
+    # Control fields
+    retry_count: int
+    current_step: str
+
+    # Accumulated diagnostics
+    errors: Annotated[list[str], add]
+    audit_trace: Annotated[list[dict[str, Any]], add]

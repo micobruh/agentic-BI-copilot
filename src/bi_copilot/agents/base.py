@@ -3,17 +3,22 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import Runnable
-from pydantic import BaseModel
 
-from bi_copilot.graph.state import BIState
-
-
-class AgentResult(BaseModel):
-    updates: dict[str, Any]
-    audit: dict[str, Any] = {}
+from bi_copilot.graph.state import AgentState
 
 
 class BaseAgent(ABC):
+    """
+    Base class for BI Copilot agents.
+
+    Each concrete agent:
+    1. Builds a LangChain runnable.
+    2. Extracts its own input from the LangGraph state.
+    3. Parses the chain output into a LangGraph partial state update.
+
+    The returned dictionary is directly compatible with LangGraph nodes.
+    """
+
     name: str
 
     def __init__(self, llm: BaseChatModel, tools: list[Any] | None = None):
@@ -24,32 +29,43 @@ class BaseAgent(ABC):
     @abstractmethod
     def build_chain(self) -> Runnable:
         """Build the LangChain runnable used by this agent."""
+        raise NotImplementedError
 
     @abstractmethod
-    def build_input(self, state: BIState) -> dict[str, Any]:
-        """Extract the agent-specific input from graph state."""
+    def build_input(self, state: AgentState) -> dict[str, Any]:
+        """Extract the agent-specific input from the LangGraph state."""
+        raise NotImplementedError
 
     @abstractmethod
-    def parse_output(self, output: Any, state: BIState) -> dict[str, Any]:
+    def parse_output(self, output: Any, state: AgentState) -> dict[str, Any]:
         """Convert chain output into a LangGraph partial state update."""
+        raise NotImplementedError
 
-    async def ainvoke(self, state: BIState) -> dict[str, Any]:
+    async def ainvoke(self, state: AgentState) -> dict[str, Any]:
+        """
+        Execute the agent as a LangGraph node.
+
+        Returns a partial state update.
+        """
         try:
             agent_input = self.build_input(state)
             output = await self.chain.ainvoke(agent_input)
             updates = self.parse_output(output, state)
 
-            updates.setdefault("audit_trace", [])
-            updates["audit_trace"].append(
-                {
-                    "agent": self.name,
-                    "status": "success",
-                }
-            )
-            return updates
+            return {
+                **updates,
+                "current_step": self.name,
+                "audit_trace": [
+                    {
+                        "agent": self.name,
+                        "status": "success",
+                    }
+                ],
+            }
 
         except Exception as exc:
             return {
+                "current_step": self.name,
                 "errors": [f"{self.name}: {exc}"],
                 "audit_trace": [
                     {
@@ -61,4 +77,7 @@ class BaseAgent(ABC):
             }
 
     def as_node(self):
+        """
+        Return this agent as a LangGraph-compatible async node function.
+        """
         return self.ainvoke

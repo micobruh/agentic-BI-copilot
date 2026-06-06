@@ -6,7 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from bi_copilot.agents.base import BaseAgent
-from bi_copilot.graph.state import BIState
+from bi_copilot.graph.state import AgentState
 
 
 PLANNER_PROMPT_PATH = Path(__file__).parents[1] / "prompts" / "planner.md"
@@ -53,6 +53,7 @@ class PlannerAgent(BaseAgent):
 
     def build_chain(self):
         parser = PydanticOutputParser(pydantic_object=PlannerOutput)
+
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -63,33 +64,46 @@ class PlannerAgent(BaseAgent):
                 (
                     "human",
                     """
-                    User question:
-                    {question}
+User question:
+{question}
 
-                    Available database tables:
-                    {available_tables}
+Available database tables:
+{available_tables}
 
-                    Metric definitions:
-                    {metric_definitions}
-                    """,
+Metric definitions:
+{metric_definitions}
+""",
                 ),
             ]
         ).partial(format_instructions=parser.get_format_instructions())
+
         return prompt | self.llm | parser
 
-    def build_input(self, state: BIState):
+    def build_input(self, state: AgentState) -> dict[str, Any]:
+        database_schema = state.get("database_schema", {})
+        metric_definitions = state.get("metric_definitions", {})
+
         return {
-            "question": state.user_question,
-            "available_tables": list(state.database_schema),
-            "metric_definitions": state.metric_definitions,
+            "question": state["user_question"],
+            "available_tables": list(database_schema.keys()),
+            "metric_definitions": metric_definitions,
         }
 
-    def parse_output(self, output: PlannerOutput, state: BIState):
+    def parse_output(self, output: PlannerOutput, state: AgentState) -> dict[str, Any]:
+        plan = output.model_dump()
+
         return {
             "intent": output.intent,
+            "question_type": output.question_type,
+            "evidence_needed": output.evidence_needed,
+            "metrics_needed": output.metrics_needed,
+            "dimensions_needed": output.dimensions_needed,
+            "filters_needed": output.filters_needed,
             "relevant_tables": output.relevant_tables,
             "retrieval_targets": [
                 target.model_dump() for target in output.retrieval_targets
             ],
-            "plan": output.model_dump(),
+            "plan": plan,
+            "answerable": output.answerable,
+            "next_action": output.next_action,
         }

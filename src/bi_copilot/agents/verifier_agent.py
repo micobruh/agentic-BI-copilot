@@ -1,12 +1,12 @@
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 from bi_copilot.agents.base import BaseAgent
-from bi_copilot.graph.state import BIState
+from bi_copilot.graph.state import AgentState
 
 
 VERIFIER_PROMPT_PATH = Path(__file__).parents[1] / "prompts" / "verifier.md"
@@ -24,6 +24,7 @@ class VerifierAgent(BaseAgent):
 
     def build_chain(self):
         parser = PydanticOutputParser(pydantic_object=VerifierOutput)
+
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -34,38 +35,54 @@ class VerifierAgent(BaseAgent):
                 (
                     "human",
                     """
-                    User question:
-                    {question}
+User question:
+{question}
 
-                    Plan:
-                    {plan}
+Plan:
+{plan}
 
-                    Generated SQL:
-                    {generated_sql}
+Generated SQL:
+{generated_sql}
 
-                    SQL validation result:
-                    {sql_validation_result}
+SQL validation result:
+{sql_validation_result}
 
-                    Query result:
-                    {query_result}
+Query result:
+{query_result}
 
-                    Current analysis summary:
-                    {analysis_summary}
-                    """,
+Current analysis summary:
+{analysis_summary}
+
+Draft answer:
+{draft_answer}
+""",
                 ),
             ]
         ).partial(format_instructions=parser.get_format_instructions())
+
         return prompt | self.llm | parser
 
-    def build_input(self, state: BIState):
+    def build_input(self, state: AgentState) -> dict[str, Any]:
         return {
-            "question": state.user_question,
-            "plan": state.plan,
-            "generated_sql": state.generated_sql,
-            "sql_validation_result": state.sql_validation_result,
-            "query_result": state.query_result,
-            "analysis_summary": state.analysis_summary,
+            "question": state["user_question"],
+            "plan": state.get("plan", {}),
+            "generated_sql": state.get("generated_sql"),
+            "sql_validation_result": state.get("sql_validation_result", {}),
+            "query_result": state.get("query_result", []),
+            "analysis_summary": state.get("analysis_summary"),
+            "draft_answer": state.get("draft_answer"),
         }
 
-    def parse_output(self, output: VerifierOutput, state: BIState):
-        return {"verification_result": output.model_dump()}
+    def parse_output(self, output: VerifierOutput, state: AgentState) -> dict[str, Any]:
+        updates: dict[str, Any] = {
+            "verification_result": output.model_dump(),
+        }
+
+        if output.passed:
+            updates["final_answer"] = (
+                state.get("draft_answer")
+                or state.get("analysis_summary")
+                or ""
+            )
+
+        return updates
